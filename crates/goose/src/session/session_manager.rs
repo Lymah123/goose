@@ -69,8 +69,6 @@ pub struct SessionInsights {
     total_tokens: i64,
 }
 
-pub type SessionId = String;
-
 impl SessionUpdateBuilder {
     fn new(session_id: String) -> Self {
         Self {
@@ -243,19 +241,6 @@ impl SessionManager {
             Ok(())
         }
     }
-
-    pub async fn search_chat_history(
-        query: &str,
-        limit: Option<usize>,
-        after_date: Option<DateTime<Utc>>,
-        before_date: Option<DateTime<Utc>>,
-        exclude_session_id: Option<String>,
-    ) -> Result<crate::session::chat_history_search::ChatRecallResults> {
-        Self::instance()
-            .await?
-            .search_chat_history(query, limit, after_date, before_date, exclude_session_id)
-            .await
-    }
 }
 
 pub struct SessionStorage {
@@ -368,8 +353,7 @@ impl SessionStorage {
         let options = SqliteConnectOptions::new()
             .filename(db_path)
             .create_if_missing(create_if_missing)
-            .busy_timeout(std::time::Duration::from_secs(5))
-            .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal);
+            .busy_timeout(std::time::Duration::from_secs(5));
 
         sqlx::SqlitePool::connect_with(options).await.map_err(|e| {
             anyhow::anyhow!(
@@ -973,28 +957,6 @@ impl SessionStorage {
         }
 
         self.get_session(&session.id, true).await
-    }
-
-    async fn search_chat_history(
-        &self,
-        query: &str,
-        limit: Option<usize>,
-        after_date: Option<DateTime<Utc>>,
-        before_date: Option<DateTime<Utc>>,
-        exclude_session_id: Option<String>,
-    ) -> Result<crate::session::chat_history_search::ChatRecallResults> {
-        use crate::session::chat_history_search::ChatHistorySearch;
-
-        ChatHistorySearch::new(
-            &self.pool,
-            query,
-            limit,
-            after_date,
-            before_date,
-            exclude_session_id,
-        )
-        .execute()
-        .await
     }
 }
 

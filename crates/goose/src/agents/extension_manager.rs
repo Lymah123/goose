@@ -3,7 +3,7 @@ use axum::http::{HeaderMap, HeaderName};
 use chrono::{DateTime, Utc};
 use futures::stream::{FuturesUnordered, StreamExt};
 use futures::{future, FutureExt};
-use rmcp::service::ClientInitializeError;
+use rmcp::service::{ClientInitializeError, ServiceError};
 use rmcp::transport::streamable_http_client::{
     AuthRequiredError, StreamableHttpClientTransportConfig, StreamableHttpError,
 };
@@ -40,6 +40,7 @@ use rmcp::model::{
     ServerInfo, Tool,
 };
 use rmcp::transport::auth::AuthClient;
+use schemars::_private::NoSerialize;
 use serde_json::Value;
 
 type McpClientBox = Arc<Mutex<Box<dyn McpClientTrait>>>;
@@ -705,9 +706,13 @@ impl ExtensionManager {
         // Loop through each extension and try to read the resource, don't raise an error if the resource is not found
         // TODO: do we want to find if a provided uri is in multiple extensions?
         // currently it will return the first match and skip any others
-        for extension_name in self.extensions.lock().await.keys() {
+
+        // Collect extension names first to avoid holding the lock during iteration
+        let extension_names: Vec<String> = self.extensions.lock().await.keys().cloned().collect();
+
+        for extension_name in extension_names {
             let result = self
-                .read_resource_from_extension(uri, extension_name, cancellation_token.clone())
+                .read_resource_from_extension(uri, &extension_name, cancellation_token.clone())
                 .await;
             match result {
                 Ok(result) => return Ok(result),
@@ -933,7 +938,12 @@ impl ExtensionManager {
                 .call_tool(&tool_name, arguments, cancellation_token)
                 .await
                 .map(|call| call.content)
-                .map_err(|e| ErrorData::new(ErrorCode::INTERNAL_ERROR, e.to_string(), None))
+                .map_err(|e| match e {
+                    ServiceError::McpError(error_data) => error_data,
+                    _ => {
+                        ErrorData::new(ErrorCode::INTERNAL_ERROR, e.to_string(), e.maybe_to_value())
+                    }
+                })
         };
 
         Ok(ToolCallResult {
